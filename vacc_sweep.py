@@ -39,7 +39,7 @@ TRAJ_POINTS  = 500
 T_MAX        = 200.0   # 200 characteristic times — safe for near-threshold convergence
 
 OMEGA_SCALAR = 5.0     # constant-omega baseline value
-NETWORK      = "CNS"
+NETWORK      = "Synthetic_delta_k5"
 DATA_PATH    = "Data/group_statistics.txt"
 OUT_DIR      = "Files/vacc"
 
