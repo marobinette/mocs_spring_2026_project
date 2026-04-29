@@ -179,7 +179,52 @@ def _vector_field(v, _t, inf_mat, w_mat, state_meta, mu):
     return np.concatenate((sm_field, fni_field.reshape((nmax + 1) ** 2)))
 
 
-def _integrate(lam, nu, w_func, w_args, state_meta, I0):
+def _vector_field_original(v, _t, inf_mat, w_mat, state_meta, mu):
+    """Paper's model: constant kernel, so S_w = S = 1 - I and I_w = I."""
+    mmax, nmax = state_meta[0], state_meta[1]
+    m, gm = state_meta[2], state_meta[3]
+    imat, nmat, pnmat = state_meta[5], state_meta[6], state_meta[7]
+
+    sm  = v[:mmax + 1]
+    fni = v[mmax + 1:].reshape((nmax + 1, nmax + 1))
+    fni_field = np.zeros_like(fni)
+
+    denom_r = np.sum((nmat[2:, :] - imat[2:, :]) * fni[2:, :] * pnmat[2:, :])
+    if denom_r < 1e-14:
+        r = 0.0
+    else:
+        r = np.sum(
+            inf_mat[2:, :] * (nmat[2:, :] - imat[2:, :]) * fni[2:, :] * pnmat[2:, :]
+        ) / denom_r
+
+    denom_rho = np.sum(m * sm * gm)
+    if denom_rho < 1e-14:
+        rho = 0.0
+    else:
+        rho = r * np.sum(m * (m - 1) * sm * gm) / denom_rho
+
+    I = _infected_fraction(sm, gm)
+    S_w = 1.0 - I
+
+    sm_field = mu * (1.0 - sm) - sm * m * r
+
+    fni_field[2:, :nmax] += (
+        imat[2:, 1:] * (mu + w_mat[2:, 1:] * S_w) * fni[2:, 1:]
+    )
+    fni_field[2:, :] += (
+        -imat[2:, :] * (mu + w_mat[2:, :] * S_w)
+        - (nmat[2:, :] - imat[2:, :]) * (inf_mat[2:, :] + rho + w_mat[2:, :] * (1.0 - S_w))
+    ) * fni[2:, :]
+    fni_field[2:, 1:nmax + 1] += (
+        (nmat[2:, :nmax] - imat[2:, :nmax])
+        * (inf_mat[2:, :nmax] + rho + w_mat[2:, :nmax] * (1.0 - S_w))
+        * fni[2:, :nmax]
+    )
+
+    return np.concatenate((sm_field, fni_field.reshape((nmax + 1) ** 2)))
+
+
+def _integrate(lam, nu, w_func, w_args, state_meta, I0, vf=_vector_field):
     mmax, nmax = state_meta[0], state_meta[1]
     gm = state_meta[3]
 
@@ -189,7 +234,7 @@ def _integrate(lam, nu, w_func, w_args, state_meta, I0):
     v0 = np.concatenate((sm, fni.reshape((nmax + 1) ** 2)))
 
     sol = solve_ivp(
-        lambda t, v: _vector_field(v, t, inf_mat, w_mat, state_meta, MU),
+        lambda t, v: vf(v, t, inf_mat, w_mat, state_meta, MU),
         t_span=(0.0, T_MAX),
         y0=v0,
         method="LSODA",
@@ -203,12 +248,12 @@ def _integrate(lam, nu, w_func, w_args, state_meta, I0):
 # Parallel sweep — one worker per nu slice
 # ---------------------------------------------------------------------------
 def _sweep_nu_slice(args):
-    j, nu, w_func, w_args, state_meta = args
+    j, nu, w_func, w_args, state_meta, vf = args
     I_low_row  = np.zeros(N_LAM)
     I_high_row = np.zeros(N_LAM)
     for i, lam in enumerate(LAM_GRID):
-        I_low_row[i]  = _integrate(lam, nu, w_func, w_args, state_meta, I0_LOW)
-        I_high_row[i] = _integrate(lam, nu, w_func, w_args, state_meta, I0_HIGH)
+        I_low_row[i]  = _integrate(lam, nu, w_func, w_args, state_meta, I0_LOW,  vf=vf)
+        I_high_row[i] = _integrate(lam, nu, w_func, w_args, state_meta, I0_HIGH, vf=vf)
         print(
             f"  nu={nu:.2f} [{j+1}/{N_NU}]  lam={lam:.2e} [{i+1}/{N_LAM}]"
             f"  I*(low)={I_low_row[i]:.4f}  I*(high)={I_high_row[i]:.4f}",
@@ -217,7 +262,7 @@ def _sweep_nu_slice(args):
     return j, I_low_row, I_high_row
 
 
-def run_sweep(w_func, w_args, state_meta, n_workers, label):
+def run_sweep(w_func, w_args, state_meta, n_workers, label, vf=_vector_field):
     print(f"\n{'='*60}")
     print(f"  {label}")
     print(f"  Grid: {N_LAM} lambda x {N_NU} nu")
@@ -226,7 +271,7 @@ def run_sweep(w_func, w_args, state_meta, n_workers, label):
     t0 = time.time()
 
     tasks = [
-        (j, nu, w_func, w_args, state_meta)
+        (j, nu, w_func, w_args, state_meta, vf)
         for j, nu in enumerate(NU_GRID)
     ]
 
@@ -255,6 +300,8 @@ def main():
                       help=f"Index into ALPHA_VALUES list: {ALPHA_VALUES}")
     mode.add_argument("--baseline", action="store_true",
                       help=f"Run constant-omega baseline (omega={OMEGA_SCALAR})")
+    mode.add_argument("--omega", type=float,
+                      help="Run constant-omega sweep at a custom omega value")
     parser.add_argument("--workers", type=int, default=None,
                         help="Parallel workers (default: all available CPUs)")
     args = parser.parse_args()
@@ -264,27 +311,32 @@ def main():
     gm, pn, mmax, nmax, state_meta = load_group_statistics(NETWORK)
     n_workers = args.workers or cpu_count()
 
-    if args.baseline:
-        I_low, I_high, delta = run_sweep(
-            w_constant, (OMEGA_SCALAR,), state_meta, n_workers,
-            f"Baseline  omega={OMEGA_SCALAR}",
+    if args.baseline or args.omega is not None:
+        omega = OMEGA_SCALAR if args.baseline else args.omega
+        outfile = os.path.join(
+            OUT_DIR,
+            "sweep_baseline.npz" if args.baseline else f"sweep_omega_{omega:.4f}.npz",
         )
-        outfile = os.path.join(OUT_DIR, "sweep_baseline.npz")
+        I_low, I_high, delta = run_sweep(
+            w_constant, (omega,), state_meta, n_workers,
+            f"Constant-omega  omega={omega}",
+            vf=_vector_field_original,
+        )
         np.savez_compressed(
             outfile,
             lam_grid=LAM_GRID, nu_grid=NU_GRID,
             I_low=I_low, I_high=I_high, delta=delta,
-            omega_scalar=OMEGA_SCALAR, mu=MU,
+            omega_scalar=omega, mu=MU,
             I0_low=I0_LOW, I0_high=I0_HIGH,
         )
 
     else:
         alpha = args.alpha if args.alpha is not None else ALPHA_VALUES[args.alpha_index]
+        outfile = os.path.join(OUT_DIR, f"sweep_kernel_alpha_{alpha:.1f}.npz")
         I_low, I_high, delta = run_sweep(
             w_diversity_tension, (alpha,), state_meta, n_workers,
             f"Kernel  alpha={alpha}",
         )
-        outfile = os.path.join(OUT_DIR, f"sweep_kernel_alpha_{alpha:.1f}.npz")
         np.savez_compressed(
             outfile,
             lam_grid=LAM_GRID, nu_grid=NU_GRID,
