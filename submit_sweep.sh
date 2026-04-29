@@ -37,7 +37,7 @@ echo "Task $SLURM_ARRAY_TASK_ID finished at $(date)"
 KERNEL_JOB
 
 # ---------------------------------------------------------------------------
-# Job B: constant-omega baseline
+# Job B: constant-omega baseline (omega=5.0)
 # ---------------------------------------------------------------------------
 sbatch <<'BASELINE_JOB'
 #!/bin/bash
@@ -58,3 +58,4 @@ python vacc_sweep.py \
 
 echo "Baseline finished at $(date)"
 BASELINE_JOB
+
