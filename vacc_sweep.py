@@ -151,10 +151,10 @@ def _vector_field(v, _t, inf_mat, w_mat, state_meta, mu):
     I = _infected_fraction(sm, gm)
 
     # Effective susceptible fraction among switchers
-    S_w_denom = np.sum(nmat[2:, :] * w_mat[2:, :] * fni[2:, :] * pnmat[2:, :])
+    S_w_denom = np.sum(nmat[2:, :] * w_mat[2:, :] * fni[2:, :] * mu)
     if S_w_denom > 1e-14:
         S_w = (
-            np.sum((nmat[2:, :] - imat[2:, :]) * w_mat[2:, :] * fni[2:, :] * pnmat[2:, :])
+            np.sum((nmat[2:, :] - imat[2:, :]) * w_mat[2:, :] * fni[2:, :] * mu)
             / S_w_denom
         )
     else:
