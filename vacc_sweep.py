@@ -84,7 +84,7 @@ def _get_state_meta(mmax, nmax, gm, pn):
 # ---------------------------------------------------------------------------
 def w_diversity_tension(n, i, alpha):
     phi = i / n
-    return alpha * 4 * phi * (1 - phi)
+    return alpha * phi * (1 - phi)
 
 
 def w_constant(n, i, omega):
