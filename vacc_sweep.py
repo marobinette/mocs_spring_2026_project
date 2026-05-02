@@ -39,7 +39,9 @@ TRAJ_POINTS  = 500
 T_MAX        = 200.0   # 200 characteristic times — safe for near-threshold convergence
 
 OMEGA_SCALAR = 5.0     # constant-omega baseline value
-NETWORK      = "Synthetic_delta_k5"
+NETWORK      = "Thiers13"
+# NETWORK      = "Synthetic_poisson_k5"
+
 DATA_PATH    = "Data/group_statistics.txt"
 OUT_DIR      = "Files/vacc"
 
@@ -83,7 +85,7 @@ def _get_state_meta(mmax, nmax, gm, pn):
 # ---------------------------------------------------------------------------
 def w_diversity_tension(n, i, alpha):
     phi = i / n
-    return alpha * phi * (1 - phi)
+    return alpha * 4 * phi * (1 - phi)
 
 
 def w_constant(n, i, omega):
