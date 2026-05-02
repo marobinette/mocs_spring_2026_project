@@ -28,8 +28,8 @@ from scipy.stats import binom
 N_LAM = 50
 N_NU  = 40
 
-LAM_GRID = np.logspace(-5, -1, N_LAM)   # 1e-5 to 1e-1 (extended left from local)
-NU_GRID  = np.linspace(1.0, 12.0, N_NU)
+LAM_GRID = np.logspace(-3, 0, N_LAM)    # 1e-3 to 1e0, matching fig_3 axes
+NU_GRID  = np.linspace(1.0, 10.0, N_NU)
 
 I0_LOW  = 1e-3
 I0_HIGH = 0.99
@@ -45,7 +45,6 @@ OUT_DIR      = "Files/vacc"
 
 # Alpha values for the SLURM array job (index = $SLURM_ARRAY_TASK_ID)
 ALPHA_VALUES = [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 50.0]
-
 
 # ---------------------------------------------------------------------------
 # Network loading

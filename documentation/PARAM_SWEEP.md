@@ -8,10 +8,6 @@ The analytical tricritical condition (Eq. 16 of the paper) does not transfer to 
 
 ---
 
-## Commands
-`scp -r mrobine1@vacc-login4.uvm.edu:/gpfs1/home/m/r/mrobine1/mocs_spring_2026_project/Files/vacc/ ~/mocs_spring_2026_project/Files/`
-`rm Files/vacc/sweep_kernel_alpha_*.npz`
-
 ## Sweep 1 — `run_sweep` (`kerenel.ipynb`, cells 6–9)
 
 **Scope:** 2D grid over (λ, ν). The main sweep for this project.

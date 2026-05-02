@@ -17,18 +17,20 @@ where α = `scale` is the overall switching amplitude. Letting φ = i/n denote t
 
 This encodes **allegiance / homophily**: individuals prefer to stay in groups whose composition matches their own state.
 
+**Special case:** when scale = 0, `w_diversity_tension` returns 5.0 for all (n, i) — a constant high switching rate (fast-mixing limit).
+
 ---
 
 ## Kernel-Weighted Susceptible Fraction S_w
 
-$$S_w = \frac{\displaystyle\sum_{n,i}(n - i)\, w(n,i)\, f_{n,i}}{\displaystyle\sum_{n,i} n\, w(n,i)\, f_{n,i}}$$
+This is the central new quantity introduced by the kernel. It is the fraction of **susceptible individuals** among all nodes who are actively switching, weighted by their switching rates:
 
-**Physical meaning:** S_w is the probability that a node entering a group (via switching) is susceptible. It is a mean-field average over all group states — the same type of calculation as r — built from first principles:
+$$S_w = \frac{\displaystyle\sum_{n,i}(n - i)\, w(n,i)\, f_{n,i}\, p_n}{\displaystyle\sum_{n,i} n\, w(n,i)\, f_{n,i}\, p_n}$$
 
-- **Numerator:** rate at which susceptible nodes leave their groups, summed over all group states. A group in state (n, i) has (n−i) susceptibles each leaving at rate w(n,i), weighted by f_{n,i}.
-- **Denominator:** rate at which any node leaves its group, summed over all group states. Same group has n total nodes each leaving at rate w(n,i).
+**Numerator:** total susceptible switching flux across all group types.  
+**Denominator:** total switching flux (all individuals) across all group types.
 
-Since w(n,i) is a **group trait** (all nodes in a group switch at the same rate regardless of state), groups are fully distinguished by (n, i) alone. The sum is only over n and i — no p_n needed.
+**Physical meaning:** Given that a random switching event occurs (drawn proportional to w(n,i)), S_w is the probability that the switching individual is susceptible. It generalizes the scalar approximation (1 − I) that holds when w is constant:
 
 | Case | S_w |
 |------|-----|
@@ -109,7 +111,7 @@ $$I = \sum_k (1 - s_k)\, g_k$$
 
 $$w(n,i) = \alpha \cdot \frac{i}{n}\left(1 - \frac{i}{n}\right)$$
 
-$$S_w = \frac{\sum_{n,i}(n-i)\,w(n,i)\,f_{n,i}}{\sum_{n,i} n\,w(n,i)\,f_{n,i}}$$
+$$S_w = \frac{\sum_{n,i}(n-i)\,w(n,i)\,f_{n,i}\,p_n}{\sum_{n,i} n\,w(n,i)\,f_{n,i}\,p_n}$$
 
 $$r = \frac{\sum_{n,i}\beta(n,i)(n-i)\,f_{n,i}\,p_n}{\sum_{n,i}(n-i)\,f_{n,i}\,p_n}, \qquad \beta(n,i) = \lambda i^\nu$$
 
@@ -123,11 +125,3 @@ $$\frac{df_{n,i}}{dt} =
 (i+1)\bigl(\mu + w(n,i+1)\,S_w\bigr)f_{n,i+1}$$
 $$-\Bigl[i\bigl(\mu + w(n,i)\,S_w\bigr) + (n-i)\bigl(\beta(n,i)+\rho+w(n,i)(1-S_w)\bigr)\Bigr]f_{n,i}$$
 $$+(n-i+1)\bigl(\beta(n,i-1)+\rho+w(n,i-1)(1-S_w)\bigr)f_{n,i-1}$$
-
----
-
-## Resolved: S_w does not include p_n
-
-**Confirmed with professor.** The scratch paper had ν (not μ) as a trailing term — a carryover from a different project where groups have different synergy exponents. It is not part of this model.
-
-S_w has no p_n because w(n,i) is a group trait: all nodes in a group switch at the same rate, so groups are fully identified by (n, i). The sum over f_{n,i} is the correct average — no structural reweighting by p_n is needed. This differs from r, where p_n is required because f_{n,i} is conditional on n and r is a per-susceptible infection rate that must account for how many groups of each size exist.
