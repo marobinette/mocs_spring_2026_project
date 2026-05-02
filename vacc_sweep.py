@@ -46,7 +46,8 @@ DATA_PATH    = "Data/group_statistics.txt"
 OUT_DIR      = "Files/vacc"
 
 # Alpha values for the SLURM array job (index = $SLURM_ARRAY_TASK_ID)
-ALPHA_VALUES = [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 50.0]
+# ALPHA_VALUES = [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 50.0]
+ALPHA_VALUES = [0.0001, 0.001, 0.01, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 50.0]
 
 # ---------------------------------------------------------------------------
 # Network loading
