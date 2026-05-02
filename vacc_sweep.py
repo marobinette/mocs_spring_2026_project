@@ -266,7 +266,7 @@ def main():
 
     gm, pn, mmax, nmax, state_meta = load_group_statistics(NETWORK)
     n_workers = args.workers or cpu_count()
-    date_str = time.strftime('%Y-%m-%d')
+    date_str = time.strftime('%Y-%m-%d_%H%M%S')
 
     if args.baseline or args.omega is not None:
         omega = OMEGA_SCALAR if args.baseline else args.omega
