@@ -84,7 +84,7 @@ def _get_state_meta(mmax, nmax, gm, pn):
 # ---------------------------------------------------------------------------
 def w_diversity_tension(n, i, alpha):
     phi = i / n
-    return alpha * phi * (1.0 - phi)
+    return alpha * 4 * phi * (1 - phi)
 
 
 def w_constant(n, i, omega):
@@ -265,13 +265,12 @@ def main():
 
     gm, pn, mmax, nmax, state_meta = load_group_statistics(NETWORK)
     n_workers = args.workers or cpu_count()
+    date_str = time.strftime('%Y-%m-%d')
 
     if args.baseline or args.omega is not None:
         omega = OMEGA_SCALAR if args.baseline else args.omega
-        outfile = os.path.join(
-            OUT_DIR,
-            "sweep_baseline.npz" if args.baseline else f"sweep_omega_{omega:.4f}.npz",
-        )
+        suffix = "baseline" if args.baseline else f"omega_{omega:.4f}"
+        outfile = os.path.join(OUT_DIR, f"{date_str}_{NETWORK}_{suffix}.npz")
         I_low, I_high, delta = run_sweep(
             w_constant, (omega,), state_meta, n_workers,
             f"Constant-omega  omega={omega}",
@@ -287,7 +286,7 @@ def main():
 
     else:
         alpha = args.alpha if args.alpha is not None else ALPHA_VALUES[args.alpha_index]
-        outfile = os.path.join(OUT_DIR, f"sweep_kernel_alpha_{alpha:.1f}.npz")
+        outfile = os.path.join(OUT_DIR, f"{date_str}_{NETWORK}_kernel_alpha_{alpha:.1f}.npz")
         I_low, I_high, delta = run_sweep(
             w_diversity_tension, (alpha,), state_meta, n_workers,
             f"Kernel  alpha={alpha}",
