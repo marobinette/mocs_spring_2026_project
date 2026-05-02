@@ -123,7 +123,7 @@ def _infected_fraction(sm, gm):
     return float(np.sum((1.0 - sm) * gm))
 
 
-def _vector_field(v, _t, inf_mat, w_mat, state_meta, mu):
+def _vector_field(v, _t, inf_mat, w_mat, state_meta, mu, is_omega_constant=False):
     mmax, nmax = state_meta[0], state_meta[1]
     m, gm = state_meta[2], state_meta[3]
     imat, nmat, pnmat = state_meta[5], state_meta[6], state_meta[7]
@@ -151,10 +151,10 @@ def _vector_field(v, _t, inf_mat, w_mat, state_meta, mu):
     I = _infected_fraction(sm, gm)
 
     # Effective susceptible fraction among switchers
-    S_w_denom = np.sum(nmat[2:, :] * w_mat[2:, :] * fni[2:, :] * mu)
-    if S_w_denom > 1e-14:
+    S_w_denom = np.sum(nmat[2:, :] * w_mat[2:, :] * fni[2:, :])
+    if S_w_denom > 1e-14 and not is_omega_constant:
         S_w = (
-            np.sum((nmat[2:, :] - imat[2:, :]) * w_mat[2:, :] * fni[2:, :] * mu)
+            np.sum((nmat[2:, :] - imat[2:, :]) * w_mat[2:, :] * fni[2:, :])
             / S_w_denom
         )
     else:
@@ -179,52 +179,7 @@ def _vector_field(v, _t, inf_mat, w_mat, state_meta, mu):
     return np.concatenate((sm_field, fni_field.reshape((nmax + 1) ** 2)))
 
 
-def _vector_field_original(v, _t, inf_mat, w_mat, state_meta, mu):
-    """Paper's model: constant kernel, so S_w = S = 1 - I and I_w = I."""
-    mmax, nmax = state_meta[0], state_meta[1]
-    m, gm = state_meta[2], state_meta[3]
-    imat, nmat, pnmat = state_meta[5], state_meta[6], state_meta[7]
-
-    sm  = v[:mmax + 1]
-    fni = v[mmax + 1:].reshape((nmax + 1, nmax + 1))
-    fni_field = np.zeros_like(fni)
-
-    denom_r = np.sum((nmat[2:, :] - imat[2:, :]) * fni[2:, :] * pnmat[2:, :])
-    if denom_r < 1e-14:
-        r = 0.0
-    else:
-        r = np.sum(
-            inf_mat[2:, :] * (nmat[2:, :] - imat[2:, :]) * fni[2:, :] * pnmat[2:, :]
-        ) / denom_r
-
-    denom_rho = np.sum(m * sm * gm)
-    if denom_rho < 1e-14:
-        rho = 0.0
-    else:
-        rho = r * np.sum(m * (m - 1) * sm * gm) / denom_rho
-
-    I = _infected_fraction(sm, gm)
-    S_w = 1.0 - I
-
-    sm_field = mu * (1.0 - sm) - sm * m * r
-
-    fni_field[2:, :nmax] += (
-        imat[2:, 1:] * (mu + w_mat[2:, 1:] * S_w) * fni[2:, 1:]
-    )
-    fni_field[2:, :] += (
-        -imat[2:, :] * (mu + w_mat[2:, :] * S_w)
-        - (nmat[2:, :] - imat[2:, :]) * (inf_mat[2:, :] + rho + w_mat[2:, :] * (1.0 - S_w))
-    ) * fni[2:, :]
-    fni_field[2:, 1:nmax + 1] += (
-        (nmat[2:, :nmax] - imat[2:, :nmax])
-        * (inf_mat[2:, :nmax] + rho + w_mat[2:, :nmax] * (1.0 - S_w))
-        * fni[2:, :nmax]
-    )
-
-    return np.concatenate((sm_field, fni_field.reshape((nmax + 1) ** 2)))
-
-
-def _integrate(lam, nu, w_func, w_args, state_meta, I0, vf=_vector_field):
+def _integrate(lam, nu, w_func, w_args, state_meta, I0, is_omega_constant=False):
     mmax, nmax = state_meta[0], state_meta[1]
     gm = state_meta[3]
 
@@ -234,7 +189,7 @@ def _integrate(lam, nu, w_func, w_args, state_meta, I0, vf=_vector_field):
     v0 = np.concatenate((sm, fni.reshape((nmax + 1) ** 2)))
 
     sol = solve_ivp(
-        lambda t, v: vf(v, t, inf_mat, w_mat, state_meta, MU),
+        lambda t, v: _vector_field(v, t, inf_mat, w_mat, state_meta, MU, is_omega_constant),
         t_span=(0.0, T_MAX),
         y0=v0,
         method="LSODA",
@@ -248,12 +203,12 @@ def _integrate(lam, nu, w_func, w_args, state_meta, I0, vf=_vector_field):
 # Parallel sweep — one worker per nu slice
 # ---------------------------------------------------------------------------
 def _sweep_nu_slice(args):
-    j, nu, w_func, w_args, state_meta, vf = args
+    j, nu, w_func, w_args, state_meta, is_omega_constant = args
     I_low_row  = np.zeros(N_LAM)
     I_high_row = np.zeros(N_LAM)
     for i, lam in enumerate(LAM_GRID):
-        I_low_row[i]  = _integrate(lam, nu, w_func, w_args, state_meta, I0_LOW,  vf=vf)
-        I_high_row[i] = _integrate(lam, nu, w_func, w_args, state_meta, I0_HIGH, vf=vf)
+        I_low_row[i]  = _integrate(lam, nu, w_func, w_args, state_meta, I0_LOW,  is_omega_constant)
+        I_high_row[i] = _integrate(lam, nu, w_func, w_args, state_meta, I0_HIGH, is_omega_constant)
         print(
             f"  nu={nu:.2f} [{j+1}/{N_NU}]  lam={lam:.2e} [{i+1}/{N_LAM}]"
             f"  I*(low)={I_low_row[i]:.4f}  I*(high)={I_high_row[i]:.4f}",
@@ -262,7 +217,7 @@ def _sweep_nu_slice(args):
     return j, I_low_row, I_high_row
 
 
-def run_sweep(w_func, w_args, state_meta, n_workers, label, vf=_vector_field):
+def run_sweep(w_func, w_args, state_meta, n_workers, label, is_omega_constant=False):
     print(f"\n{'='*60}")
     print(f"  {label}")
     print(f"  Grid: {N_LAM} lambda x {N_NU} nu")
@@ -271,7 +226,7 @@ def run_sweep(w_func, w_args, state_meta, n_workers, label, vf=_vector_field):
     t0 = time.time()
 
     tasks = [
-        (j, nu, w_func, w_args, state_meta, vf)
+        (j, nu, w_func, w_args, state_meta, is_omega_constant)
         for j, nu in enumerate(NU_GRID)
     ]
 
@@ -320,7 +275,7 @@ def main():
         I_low, I_high, delta = run_sweep(
             w_constant, (omega,), state_meta, n_workers,
             f"Constant-omega  omega={omega}",
-            vf=_vector_field_original,
+            is_omega_constant=True,
         )
         np.savez_compressed(
             outfile,
