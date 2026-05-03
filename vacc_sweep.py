@@ -35,8 +35,8 @@ I0_LOW  = 1e-3
 I0_HIGH = 0.99
 
 MU           = 1.0
-TRAJ_POINTS  = 500
-T_MAX        = 200.0   # 200 characteristic times — safe for near-threshold convergence
+TRAJ_POINTS  = 50      # only the final value is used for δI; LSODA accuracy is unaffected
+T_MAX        = 1000.0  # near-threshold cells converge very slowly; 1000 characteristic times is safe
 
 OMEGA_SCALAR = 5.0     # constant-omega baseline value
 NETWORK      = "Thiers13"

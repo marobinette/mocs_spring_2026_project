@@ -22,7 +22,7 @@ sbatch <<'KERNEL_JOB'
 #SBATCH --array=0-12
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=16G
-#SBATCH --time=2:00:00
+#SBATCH --time=10:00:00
 #SBATCH --output=logs/kernel_%a.out
 #SBATCH --error=logs/kernel_%a.err
 
@@ -45,7 +45,7 @@ sbatch <<'BASELINE_JOB'
 #SBATCH --job-name=baseline_sweep
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=16G
-#SBATCH --time=1:00:00
+#SBATCH --time=5:00:00
 #SBATCH --output=logs/baseline.out
 #SBATCH --error=logs/baseline.err
 
