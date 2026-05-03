@@ -12,13 +12,14 @@
 
 # ---------------------------------------------------------------------------
 # Job A: kernel sweeps (array, one task per alpha)
-# ALPHA_VALUES = [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 50.0]
-#                  0    1    2    3    4     5     6     7     8
+# ALPHA_VALUES = np.logspace(-1, 2, 13)
+# ~ [0.10, 0.18, 0.32, 0.56, 1.0, 1.78, 3.16, 5.62, 10.0, 17.8, 31.6, 56.2, 100.0]
+#      0     1     2     3    4     5     6     7     8     9    10    11    12
 # ---------------------------------------------------------------------------
 sbatch <<'KERNEL_JOB'
 #!/bin/bash
 #SBATCH --job-name=kernel_sweep
-#SBATCH --array=0-8
+#SBATCH --array=0-12
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=16G
 #SBATCH --time=2:00:00

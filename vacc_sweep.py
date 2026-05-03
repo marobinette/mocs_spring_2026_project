@@ -46,8 +46,8 @@ DATA_PATH    = "Data/group_statistics.txt"
 OUT_DIR      = "Files/vacc"
 
 # Alpha values for the SLURM array job (index = $SLURM_ARRAY_TASK_ID)
-# ALPHA_VALUES = [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 50.0]
-ALPHA_VALUES = [0.0001, 0.001, 0.01, 0.1, 1.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0]
+# 13 log-spaced points from 0.1 to 100 (one decade per 4 steps)
+ALPHA_VALUES = np.logspace(-1, 2, 13).tolist()
 
 # ---------------------------------------------------------------------------
 # Network loading
@@ -288,7 +288,7 @@ def main():
 
     else:
         alpha = args.alpha if args.alpha is not None else ALPHA_VALUES[args.alpha_index]
-        outfile = os.path.join(OUT_DIR, f"{date_str}_{NETWORK}_kernel_alpha_{alpha:.1f}.npz")
+        outfile = os.path.join(OUT_DIR, f"{date_str}_{NETWORK}_kernel_alpha_{alpha:g}.npz")
         I_low, I_high, delta = run_sweep(
             w_diversity_tension, (alpha,), state_meta, n_workers,
             f"Kernel  alpha={alpha}",
