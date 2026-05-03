@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
 """
-VACC parameter sweep — diversity-tension kernel vs constant-omega baseline.
+VACC parameter sweep — diversity-tension kernel, inverted kernel, and constant-omega baseline.
 
-Sweeps (lambda x nu) for a single alpha value. The baseline (constant omega)
-can also be run with --baseline. Designed to be submitted as a SLURM array
-job, one task per alpha value.
+Sweeps (lambda x nu) for a single alpha value. Designed to be submitted as a
+SLURM array job, one task per alpha value.
+
+Kernels
+-------
+  diversity-tension  w(n,i) = 4α·φ·(1−φ)      peaks at φ=0.5 (flees mixed groups)
+  inverted           w(n,i) = α·(1−4φ·(1−φ))  peaks at φ=0,1 (flees homogeneous groups)
+  baseline           w(n,i) = ω               constant rate
 
 Usage:
-    python vacc_sweep.py --alpha 30.0
-    python vacc_sweep.py --alpha 30.0 --workers 16
-    python vacc_sweep.py --baseline
+    python vacc_sweep.py --alpha 3.0          # diversity-tension kernel
+    python vacc_sweep.py --inverted 3.0       # inverted kernel
+    python vacc_sweep.py --baseline           # constant-omega baseline
+    python vacc_sweep.py --alpha 3.0 --workers 16
 """
 
 import argparse
@@ -87,6 +93,12 @@ def _get_state_meta(mmax, nmax, gm, pn):
 def w_diversity_tension(n, i, alpha):
     phi = i / n
     return alpha * 4 * phi * (1 - phi)
+
+
+def w_inverted(n, i, alpha):
+    """Inverted diversity-tension: nodes flee homogeneous groups, stay in mixed ones."""
+    phi = i / n
+    return alpha * (1 - 4 * phi * (1 - phi))
 
 
 def w_constant(n, i, omega):
@@ -254,7 +266,11 @@ def main():
     mode.add_argument("--alpha", type=float,
                       help="Diversity-tension amplitude α")
     mode.add_argument("--alpha-index", type=int,
-                      help=f"Index into ALPHA_VALUES list: {ALPHA_VALUES}")
+                      help=f"Index into ALPHA_VALUES list for diversity-tension kernel: {ALPHA_VALUES}")
+    mode.add_argument("--inverted", type=float,
+                      help="Inverted diversity-tension amplitude α")
+    mode.add_argument("--inverted-index", type=int,
+                      help=f"Index into ALPHA_VALUES list for inverted kernel: {ALPHA_VALUES}")
     mode.add_argument("--baseline", action="store_true",
                       help=f"Run constant-omega baseline (omega={OMEGA_SCALAR})")
     mode.add_argument("--omega", type=float,
@@ -283,6 +299,21 @@ def main():
             lam_grid=LAM_GRID, nu_grid=NU_GRID,
             I_low=I_low, I_high=I_high, delta=delta,
             omega_scalar=omega, mu=MU,
+            I0_low=I0_LOW, I0_high=I0_HIGH,
+        )
+
+    elif args.inverted is not None or args.inverted_index is not None:
+        alpha = args.inverted if args.inverted is not None else ALPHA_VALUES[args.inverted_index]
+        outfile = os.path.join(OUT_DIR, f"{date_str}_{NETWORK}_inverted_alpha_{alpha:g}.npz")
+        I_low, I_high, delta = run_sweep(
+            w_inverted, (alpha,), state_meta, n_workers,
+            f"Inverted kernel  alpha={alpha}",
+        )
+        np.savez_compressed(
+            outfile,
+            lam_grid=LAM_GRID, nu_grid=NU_GRID,
+            I_low=I_low, I_high=I_high, delta=delta,
+            alpha=alpha, mu=MU,
             I0_low=I0_LOW, I0_high=I0_HIGH,
         )
 

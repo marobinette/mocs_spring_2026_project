@@ -60,3 +60,28 @@ python vacc_sweep.py \
 echo "Baseline finished at $(date)"
 BASELINE_JOB
 
+# ---------------------------------------------------------------------------
+# Job C: inverted kernel sweeps (array, one task per alpha)
+# Same ALPHA_VALUES as Job A — direct like-for-like comparison.
+# ---------------------------------------------------------------------------
+sbatch <<'INVERTED_JOB'
+#!/bin/bash
+#SBATCH --job-name=inverted_sweep
+#SBATCH --array=0-12
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=16G
+#SBATCH --time=10:00:00
+#SBATCH --output=logs/inverted_%a.out
+#SBATCH --error=logs/inverted_%a.err
+
+mkdir -p logs Files/vacc
+
+echo "Task $SLURM_ARRAY_TASK_ID starting on $(hostname) at $(date)"
+
+python vacc_sweep.py \
+    --inverted-index $SLURM_ARRAY_TASK_ID \
+    --workers $SLURM_CPUS_PER_TASK
+
+echo "Task $SLURM_ARRAY_TASK_ID finished at $(date)"
+INVERTED_JOB
+
