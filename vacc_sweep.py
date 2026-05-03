@@ -47,7 +47,7 @@ OUT_DIR      = "Files/vacc"
 
 # Alpha values for the SLURM array job (index = $SLURM_ARRAY_TASK_ID)
 # ALPHA_VALUES = [0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 50.0]
-ALPHA_VALUES = [0.0001, 0.001, 0.01, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 50.0]
+ALPHA_VALUES = [0.0001, 0.001, 0.01, 0.1, 1.0, 10.0, 20.0, 30.0, 40.0, 50.0, 60.0]
 
 # ---------------------------------------------------------------------------
 # Network loading
@@ -267,7 +267,7 @@ def main():
 
     gm, pn, mmax, nmax, state_meta = load_group_statistics(NETWORK)
     n_workers = args.workers or cpu_count()
-    date_str = time.strftime('%Y-%m-%d_%H%M%S')
+    date_str = time.strftime('%Y-%m-%d')
 
     if args.baseline or args.omega is not None:
         omega = OMEGA_SCALAR if args.baseline else args.omega
