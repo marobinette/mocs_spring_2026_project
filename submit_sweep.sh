@@ -1,14 +1,45 @@
 #!/bin/bash
-# SLURM submission script — diversity-tension kernel.
+# SLURM submission script — diversity-tension kernel or baseline.
 #
-# Submits a single array job (13 alpha values) for the selected network.
+# Submits a 13-task array job (one per alpha value) for the kernel sweep, or
+# a single job for the baseline (constant ω=5) sweep.
 # Results land in Files/vacc/
 #
 # Usage:
-#   sbatch submit_sweep.sh
-#   NETWORK=Synthetic_poisson_k5 sbatch submit_sweep.sh
+#   sbatch submit_sweep.sh                                  # kernel, Thiers13
+#   NETWORK=Synthetic_poisson_k5 sbatch submit_sweep.sh    # kernel, other network
+#   BASELINE=1 sbatch submit_sweep.sh                      # baseline, Thiers13
+#   BASELINE=1 NETWORK=Synthetic_poisson_k5 sbatch submit_sweep.sh
 
 NETWORK="${NETWORK:-Thiers13}"
+BASELINE="${BASELINE:-0}"
+
+if [ "$BASELINE" = "1" ]; then
+
+echo "Submitting baseline sweep for NETWORK=$NETWORK"
+
+sbatch <<BASELINE_JOB
+#!/bin/bash
+#SBATCH --job-name=baseline_${NETWORK}
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=16G
+#SBATCH --time=10:00:00
+#SBATCH --output=logs/baseline_${NETWORK}.out
+#SBATCH --error=logs/baseline_${NETWORK}.err
+
+mkdir -p logs Files/vacc
+
+echo "Baseline job starting on \$(hostname) at \$(date)"
+
+python vacc_sweep.py \\
+    --baseline \\
+    --network ${NETWORK} \\
+    --workers \$SLURM_CPUS_PER_TASK
+
+echo "Baseline job finished at \$(date)"
+BASELINE_JOB
+
+else
 
 echo "Submitting kernel sweep for NETWORK=$NETWORK"
 
@@ -37,3 +68,5 @@ python vacc_sweep.py \\
 
 echo "Task \$SLURM_ARRAY_TASK_ID finished at \$(date)"
 KERNEL_JOB
+
+fi
