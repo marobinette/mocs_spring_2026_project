@@ -258,7 +258,7 @@ def main():
     parser.add_argument("--workers", type=int, default=None,
                         help="Parallel workers (default: all available CPUs)")
     parser.add_argument("--network", type=str, default="Thiers13",
-                        choices=["Thiers13", "Synthetic_poisson_k5", "Synthetic_poisson_k3"],
+                        choices=["Thiers13", "Synthetic_poisson_k5", "Synthetic_poisson_k3", "LyonSchool"],
                         help="Network to sweep (default: Thiers13)")
     args = parser.parse_args()
 
