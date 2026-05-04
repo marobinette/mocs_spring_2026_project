@@ -1,20 +1,16 @@
 #!/usr/bin/env python3
 """
-VACC parameter sweep — diversity-tension kernel, inverted kernel, and constant-omega baseline.
+VACC parameter sweep — diversity-tension kernel.
 
 Sweeps (lambda x nu) for a single alpha value. Designed to be submitted as a
 SLURM array job, one task per alpha value.
 
-Kernels
--------
-  diversity-tension  w(n,i) = 4α·φ·(1−φ)      peaks at φ=0.5 (flees mixed groups)
-  inverted           w(n,i) = α·(1−4φ·(1−φ))  peaks at φ=0,1 (flees homogeneous groups)
-  baseline           w(n,i) = ω               constant rate
+Kernel: w(n,i) = 4α·φ·(1−φ)  peaks at φ=0.5 (flees mixed groups)
 
 Usage:
-    python vacc_sweep.py --alpha 3.0          # diversity-tension kernel
-    python vacc_sweep.py --inverted 3.0       # inverted kernel
-    python vacc_sweep.py --baseline           # constant-omega baseline
+    python vacc_sweep.py --alpha 3.0
+    python vacc_sweep.py --alpha-index 6           # index into ALPHA_VALUES
+    python vacc_sweep.py --alpha 3.0 --network Synthetic_poisson_k5
     python vacc_sweep.py --alpha 3.0 --workers 16
 """
 
@@ -29,28 +25,25 @@ from scipy.integrate import solve_ivp
 from scipy.stats import binom
 
 # ---------------------------------------------------------------------------
-# Grid — scale these up from the local 15x15 test
+# Grid
 # ---------------------------------------------------------------------------
 N_LAM = 50
 N_NU  = 40
 
-LAM_GRID = np.logspace(-3, 0, N_LAM)    # 1e-3 to 1e0, matching fig_3 axes
+LAM_GRID = np.logspace(-3, 0, N_LAM)
 NU_GRID  = np.linspace(1.0, 10.0, N_NU)
 
 I0_LOW  = 1e-3
 I0_HIGH = 0.99
 
 MU           = 1.0
-TRAJ_POINTS  = 50      # only the final value is used for δI; LSODA accuracy is unaffected
-T_MAX        = 1000.0  # near-threshold cells converge very slowly; 1000 characteristic times is safe
+TRAJ_POINTS  = 50
+T_MAX        = 1000.0
 
-OMEGA_SCALAR = 5.0     # constant-omega baseline value
+DATA_PATH = "Data/group_statistics.txt"
+OUT_DIR   = "Files/vacc"
 
-DATA_PATH    = "Data/group_statistics.txt"
-OUT_DIR      = "Files/vacc"
-
-# Alpha values for the SLURM array job (index = $SLURM_ARRAY_TASK_ID)
-# 13 log-spaced points from 0.1 to 100 (one decade per 4 steps)
+# 13 log-spaced alpha values from 0.1 to 100 (index = $SLURM_ARRAY_TASK_ID)
 ALPHA_VALUES = np.logspace(-1, 2, 13).tolist()
 
 # ---------------------------------------------------------------------------
@@ -86,21 +79,11 @@ def _get_state_meta(mmax, nmax, gm, pn):
 
 
 # ---------------------------------------------------------------------------
-# Kernels
+# Kernel
 # ---------------------------------------------------------------------------
 def w_diversity_tension(n, i, alpha):
     phi = i / n
     return alpha * 4 * phi * (1 - phi)
-
-
-def w_inverted(n, i, alpha):
-    """Inverted diversity-tension: nodes flee homogeneous groups, stay in mixed ones."""
-    phi = i / n
-    return alpha * (1 - 4 * phi * (1 - phi))
-
-
-def w_constant(n, i, omega):
-    return omega
 
 
 # ---------------------------------------------------------------------------
@@ -114,11 +97,11 @@ def _infection_matrix(lam, nu, nmax):
     return mat
 
 
-def _switching_matrix(w_func, nmax, w_args):
+def _switching_matrix(nmax, alpha):
     mat = np.zeros((nmax + 1, nmax + 1))
     for n in range(2, nmax + 1):
         for i in range(n + 1):
-            mat[n, i] = w_func(n, i, *w_args)
+            mat[n, i] = w_diversity_tension(n, i, alpha)
     return mat
 
 
@@ -135,7 +118,7 @@ def _infected_fraction(sm, gm):
     return float(np.sum((1.0 - sm) * gm))
 
 
-def _vector_field(v, _t, inf_mat, w_mat, state_meta, mu, is_omega_constant=False):
+def _vector_field(v, _t, inf_mat, w_mat, state_meta):
     mmax, nmax = state_meta[0], state_meta[1]
     m, gm = state_meta[2], state_meta[3]
     imat, nmat, pnmat = state_meta[5], state_meta[6], state_meta[7]
@@ -144,7 +127,6 @@ def _vector_field(v, _t, inf_mat, w_mat, state_meta, mu, is_omega_constant=False
     fni = v[mmax + 1:].reshape((nmax + 1, nmax + 1))
     fni_field = np.zeros_like(fni)
 
-    # Infection pressure r — guard against all-infected state
     denom_r = np.sum((nmat[2:, :] - imat[2:, :]) * fni[2:, :] * pnmat[2:, :])
     if denom_r < 1e-14:
         r = 0.0
@@ -153,33 +135,29 @@ def _vector_field(v, _t, inf_mat, w_mat, state_meta, mu, is_omega_constant=False
             inf_mat[2:, :] * (nmat[2:, :] - imat[2:, :]) * fni[2:, :] * pnmat[2:, :]
         ) / denom_r
 
-    # Excess susceptible membership rho — guard against all-infected state
     denom_rho = np.sum(m * sm * gm)
     if denom_rho < 1e-14:
         rho = 0.0
     else:
         rho = r * np.sum(m * (m - 1) * sm * gm) / denom_rho
 
-    I = _infected_fraction(sm, gm)
-
-    # Effective susceptible fraction among switchers
     S_w_denom = np.sum(nmat[2:, :] * w_mat[2:, :] * fni[2:, :])
-    if S_w_denom > 1e-14 and not is_omega_constant:
+    if S_w_denom > 1e-14:
         S_w = (
             np.sum((nmat[2:, :] - imat[2:, :]) * w_mat[2:, :] * fni[2:, :])
             / S_w_denom
         )
     else:
+        I = _infected_fraction(sm, gm)
         S_w = 1.0 - I
 
-    sm_field = mu * (1.0 - sm) - sm * m * r
+    sm_field = MU * (1.0 - sm) - sm * m * r
 
-    # Group state transitions
     fni_field[2:, :nmax] += (
-        imat[2:, 1:] * (mu + w_mat[2:, 1:] * S_w) * fni[2:, 1:]
+        imat[2:, 1:] * (MU + w_mat[2:, 1:] * S_w) * fni[2:, 1:]
     )
     fni_field[2:, :] += (
-        -imat[2:, :] * (mu + w_mat[2:, :] * S_w)
+        -imat[2:, :] * (MU + w_mat[2:, :] * S_w)
         - (nmat[2:, :] - imat[2:, :]) * (inf_mat[2:, :] + rho + w_mat[2:, :] * (1.0 - S_w))
     ) * fni[2:, :]
     fni_field[2:, 1:nmax + 1] += (
@@ -191,17 +169,17 @@ def _vector_field(v, _t, inf_mat, w_mat, state_meta, mu, is_omega_constant=False
     return np.concatenate((sm_field, fni_field.reshape((nmax + 1) ** 2)))
 
 
-def _integrate(lam, nu, w_func, w_args, state_meta, I0, is_omega_constant=False):
+def _integrate(lam, nu, alpha, state_meta, I0):
     mmax, nmax = state_meta[0], state_meta[1]
     gm = state_meta[3]
 
     inf_mat = _infection_matrix(lam, nu, nmax)
-    w_mat   = _switching_matrix(w_func, nmax, w_args)
+    w_mat   = _switching_matrix(nmax, alpha)
     sm, fni = _initialize(state_meta, I0)
     v0 = np.concatenate((sm, fni.reshape((nmax + 1) ** 2)))
 
     sol = solve_ivp(
-        lambda t, v: _vector_field(v, t, inf_mat, w_mat, state_meta, MU, is_omega_constant),
+        lambda t, v: _vector_field(v, t, inf_mat, w_mat, state_meta),
         t_span=(0.0, T_MAX),
         y0=v0,
         method="LSODA",
@@ -215,12 +193,12 @@ def _integrate(lam, nu, w_func, w_args, state_meta, I0, is_omega_constant=False)
 # Parallel sweep — one worker per nu slice
 # ---------------------------------------------------------------------------
 def _sweep_nu_slice(args):
-    j, nu, w_func, w_args, state_meta, is_omega_constant = args
+    j, nu, alpha, state_meta = args
     I_low_row  = np.zeros(N_LAM)
     I_high_row = np.zeros(N_LAM)
     for i, lam in enumerate(LAM_GRID):
-        I_low_row[i]  = _integrate(lam, nu, w_func, w_args, state_meta, I0_LOW,  is_omega_constant)
-        I_high_row[i] = _integrate(lam, nu, w_func, w_args, state_meta, I0_HIGH, is_omega_constant)
+        I_low_row[i]  = _integrate(lam, nu, alpha, state_meta, I0_LOW)
+        I_high_row[i] = _integrate(lam, nu, alpha, state_meta, I0_HIGH)
         print(
             f"  nu={nu:.2f} [{j+1}/{N_NU}]  lam={lam:.2e} [{i+1}/{N_LAM}]"
             f"  I*(low)={I_low_row[i]:.4f}  I*(high)={I_high_row[i]:.4f}",
@@ -229,7 +207,7 @@ def _sweep_nu_slice(args):
     return j, I_low_row, I_high_row
 
 
-def run_sweep(w_func, w_args, state_meta, n_workers, label, is_omega_constant=False):
+def run_sweep(alpha, state_meta, n_workers, label):
     print(f"\n{'='*60}")
     print(f"  {label}")
     print(f"  Grid: {N_LAM} lambda x {N_NU} nu")
@@ -237,10 +215,7 @@ def run_sweep(w_func, w_args, state_meta, n_workers, label, is_omega_constant=Fa
     print(f"{'='*60}\n")
     t0 = time.time()
 
-    tasks = [
-        (j, nu, w_func, w_args, state_meta, is_omega_constant)
-        for j, nu in enumerate(NU_GRID)
-    ]
+    tasks = [(j, nu, alpha, state_meta) for j, nu in enumerate(NU_GRID)]
 
     I_low  = np.zeros((N_LAM, N_NU))
     I_high = np.zeros((N_LAM, N_NU))
@@ -260,19 +235,11 @@ def run_sweep(w_func, w_args, state_meta, n_workers, label, is_omega_constant=Fa
 # ---------------------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--alpha", type=float,
-                      help="Diversity-tension amplitude α")
-    mode.add_argument("--alpha-index", type=int,
-                      help=f"Index into ALPHA_VALUES list for diversity-tension kernel: {ALPHA_VALUES}")
-    mode.add_argument("--inverted", type=float,
-                      help="Inverted diversity-tension amplitude α")
-    mode.add_argument("--inverted-index", type=int,
-                      help=f"Index into ALPHA_VALUES list for inverted kernel: {ALPHA_VALUES}")
-    mode.add_argument("--baseline", action="store_true",
-                      help=f"Run constant-omega baseline (omega={OMEGA_SCALAR})")
-    mode.add_argument("--omega", type=float,
-                      help="Run constant-omega sweep at a custom omega value")
+    alpha_group = parser.add_mutually_exclusive_group(required=True)
+    alpha_group.add_argument("--alpha", type=float,
+                             help="Diversity-tension amplitude α")
+    alpha_group.add_argument("--alpha-index", type=int,
+                             help=f"Index into ALPHA_VALUES: {ALPHA_VALUES}")
     parser.add_argument("--workers", type=int, default=None,
                         help="Parallel workers (default: all available CPUs)")
     parser.add_argument("--network", type=str, default="Thiers13",
@@ -280,62 +247,28 @@ def main():
                         help="Network to sweep (default: Thiers13)")
     args = parser.parse_args()
 
-    NETWORK = args.network
     os.makedirs(OUT_DIR, exist_ok=True)
 
-    gm, pn, mmax, nmax, state_meta = load_group_statistics(NETWORK)
+    alpha = args.alpha if args.alpha is not None else ALPHA_VALUES[args.alpha_index]
+    network = args.network
     n_workers = args.workers or cpu_count()
     date_str = time.strftime('%Y-%m-%d')
 
-    if args.baseline or args.omega is not None:
-        omega = OMEGA_SCALAR if args.baseline else args.omega
-        suffix = "baseline" if args.baseline else f"omega_{omega:.4f}"
-        outfile = os.path.join(OUT_DIR, f"{date_str}_{NETWORK}_{suffix}.npz")
-        I_low, I_high, delta = run_sweep(
-            w_constant, (omega,), state_meta, n_workers,
-            f"Constant-omega  omega={omega}",
-            is_omega_constant=True,
-        )
-        np.savez_compressed(
-            outfile,
-            lam_grid=LAM_GRID, nu_grid=NU_GRID,
-            I_low=I_low, I_high=I_high, delta=delta,
-            omega_scalar=omega, mu=MU,
-            I0_low=I0_LOW, I0_high=I0_HIGH,
-            kernel="baseline",
-        )
+    gm, pn, mmax, nmax, state_meta = load_group_statistics(network)
 
-    elif args.inverted is not None or args.inverted_index is not None:
-        alpha = args.inverted if args.inverted is not None else ALPHA_VALUES[args.inverted_index]
-        outfile = os.path.join(OUT_DIR, f"{date_str}_{NETWORK}_inverted_alpha_{alpha:g}.npz")
-        I_low, I_high, delta = run_sweep(
-            w_inverted, (alpha,), state_meta, n_workers,
-            f"Inverted kernel  alpha={alpha}",
-        )
-        np.savez_compressed(
-            outfile,
-            lam_grid=LAM_GRID, nu_grid=NU_GRID,
-            I_low=I_low, I_high=I_high, delta=delta,
-            alpha=alpha, mu=MU,
-            I0_low=I0_LOW, I0_high=I0_HIGH,
-            kernel="inverted",
-        )
-
-    else:
-        alpha = args.alpha if args.alpha is not None else ALPHA_VALUES[args.alpha_index]
-        outfile = os.path.join(OUT_DIR, f"{date_str}_{NETWORK}_kernel_alpha_{alpha:g}.npz")
-        I_low, I_high, delta = run_sweep(
-            w_diversity_tension, (alpha,), state_meta, n_workers,
-            f"Kernel  alpha={alpha}",
-        )
-        np.savez_compressed(
-            outfile,
-            lam_grid=LAM_GRID, nu_grid=NU_GRID,
-            I_low=I_low, I_high=I_high, delta=delta,
-            alpha=alpha, mu=MU,
-            I0_low=I0_LOW, I0_high=I0_HIGH,
-            kernel="diversity_tension",
-        )
+    outfile = os.path.join(OUT_DIR, f"{date_str}_{network}_kernel_alpha_{alpha:g}.npz")
+    I_low, I_high, delta = run_sweep(
+        alpha, state_meta, n_workers,
+        f"Diversity-tension kernel  alpha={alpha}  network={network}",
+    )
+    np.savez_compressed(
+        outfile,
+        lam_grid=LAM_GRID, nu_grid=NU_GRID,
+        I_low=I_low, I_high=I_high, delta=delta,
+        alpha=alpha, mu=MU,
+        I0_low=I0_LOW, I0_high=I0_HIGH,
+        kernel="diversity_tension",
+    )
 
     print(f"\nSaved → {outfile}")
 
