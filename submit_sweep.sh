@@ -43,8 +43,8 @@ else
 
 echo "Submitting kernel sweep for NETWORK=$NETWORK"
 
-# ALPHA_VALUES = np.logspace(-1, 2, 13)
-# ~ [0.10, 0.18, 0.32, 0.56, 1.0, 1.78, 3.16, 5.62, 10.0, 17.8, 31.6, 56.2, 100.0]
+# ALPHA_VALUES = np.logspace(-1, 3, 13)
+# ~ [0.10, 0.22, 0.46, 1.0, 2.15, 4.64, 10.0, 21.5, 46.4, 100.0, 215.4, 464.2, 1000.0]
 #      0     1     2     3    4     5     6     7     8     9    10    11    12
 
 sbatch <<KERNEL_JOB
