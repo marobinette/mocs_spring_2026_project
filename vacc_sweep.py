@@ -45,8 +45,6 @@ TRAJ_POINTS  = 50      # only the final value is used for δI; LSODA accuracy is
 T_MAX        = 1000.0  # near-threshold cells converge very slowly; 1000 characteristic times is safe
 
 OMEGA_SCALAR = 5.0     # constant-omega baseline value
-NETWORK      = "Thiers13"
-# NETWORK      = "Synthetic_poisson_k5"
 
 DATA_PATH    = "Data/group_statistics.txt"
 OUT_DIR      = "Files/vacc"
@@ -277,8 +275,12 @@ def main():
                       help="Run constant-omega sweep at a custom omega value")
     parser.add_argument("--workers", type=int, default=None,
                         help="Parallel workers (default: all available CPUs)")
+    parser.add_argument("--network", type=str, default="Thiers13",
+                        choices=["Thiers13", "Synthetic_poisson_k5"],
+                        help="Network to sweep (default: Thiers13)")
     args = parser.parse_args()
 
+    NETWORK = args.network
     os.makedirs(OUT_DIR, exist_ok=True)
 
     gm, pn, mmax, nmax, state_meta = load_group_statistics(NETWORK)
@@ -300,6 +302,7 @@ def main():
             I_low=I_low, I_high=I_high, delta=delta,
             omega_scalar=omega, mu=MU,
             I0_low=I0_LOW, I0_high=I0_HIGH,
+            kernel="baseline",
         )
 
     elif args.inverted is not None or args.inverted_index is not None:
@@ -315,6 +318,7 @@ def main():
             I_low=I_low, I_high=I_high, delta=delta,
             alpha=alpha, mu=MU,
             I0_low=I0_LOW, I0_high=I0_HIGH,
+            kernel="inverted",
         )
 
     else:
@@ -330,6 +334,7 @@ def main():
             I_low=I_low, I_high=I_high, delta=delta,
             alpha=alpha, mu=MU,
             I0_low=I0_LOW, I0_high=I0_HIGH,
+            kernel="diversity_tension",
         )
 
     print(f"\nSaved → {outfile}")
