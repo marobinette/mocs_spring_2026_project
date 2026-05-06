@@ -8,7 +8,7 @@
 #   sbatch submit_sweep.sh
 #   NETWORK=Synthetic_poisson_k5 sbatch submit_sweep.sh
 #   KERNEL=avoidance sbatch submit_sweep.sh
-#   KERNEL=avoidance NETWORK=LyonSchool sbatch submit_sweep.sh
+#   KERNEL=avoidance NETWORK=Synthetic_poisson_k2 sbatch submit_sweep.sh
 
 NETWORK="${NETWORK:-Thiers13}"
 KERNEL="${KERNEL:-diversity_tension}"   # diversity_tension | avoidance

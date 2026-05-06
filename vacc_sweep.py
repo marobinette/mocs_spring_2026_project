@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 """
-VACC parameter sweep — diversity-tension kernel, avoidance kernel, or baseline.
+VACC parameter sweep — diversity-tension kernels or baseline.
 
 Sweeps (lambda x nu) for a single alpha value, or runs a single baseline sweep
 with constant omega. Designed to be submitted as a SLURM array job.
 
 Kernels:
-  diversity_tension  w_S = w_I = α·φ·(1−φ)   both flee mixed groups (symmetric)
-  avoidance          w_S = α·φ, w_I = 0       susceptibles flee infected-heavy
-                                               groups; infected do not rewire
-Baseline: w_S = w_I = OMEGA_BASELINE (constant)
+  diversity_tension  w = α·φ·(1−φ)           both flee mixed groups; zero for pure groups
+  tension_shifted    w = α·φ·(1−φ) + ω₀      same signal on top of baseline floor;
+                                              never shuts off rewiring
+Baseline: w = OMEGA_BASELINE (constant, no composition dependence)
 
 Usage:
-    python vacc_sweep.py --task-index 0                                 # first alpha, default kernel
-    python vacc_sweep.py --task-index 11                                # baseline
-    python vacc_sweep.py --alpha 3.0 --kernel avoidance
+    python vacc_sweep.py --task-index 0                                    # first alpha, default kernel
+    python vacc_sweep.py --task-index 11                                   # baseline
+    python vacc_sweep.py --alpha 3.0 --kernel tension_shifted
     python vacc_sweep.py --alpha-index 6 --kernel diversity_tension
     python vacc_sweep.py --baseline
-    python vacc_sweep.py --task-index 0 --network Synthetic_poisson_k5 --kernel avoidance
+    python vacc_sweep.py --task-index 0 --network Synthetic_poisson_k5
     python vacc_sweep.py --alpha 3.0 --workers 16
 """
 
@@ -51,7 +51,7 @@ DATA_PATH = "Data/group_statistics.txt"
 OUT_DIR   = "Files/vacc"
 
 ALPHA_VALUES   = np.logspace(-1, 3, 11).tolist()
-KERNEL_CHOICES = ["diversity_tension", "avoidance"]
+KERNEL_CHOICES = ["diversity_tension", "tension_shifted"]
 
 OMEGA_BASELINE = 5.0
 
@@ -95,10 +95,9 @@ def w_diversity_tension(n, i, alpha):
     return alpha * phi * (1 - phi)
 
 
-def w_avoidance(n, i, alpha):
-    """Susceptible switching rate — linear in infected fraction."""
+def w_tension_shifted(n, i, alpha):
     phi = i / n
-    return alpha * phi
+    return alpha * phi * (1 - phi) + OMEGA_BASELINE
 
 
 # ---------------------------------------------------------------------------
@@ -112,29 +111,19 @@ def _infection_matrix(lam, nu, nmax):
     return mat
 
 
-def _build_switching_matrices(nmax, alpha, kernel):
-    """Return (w_S_mat, w_I_mat) for the chosen kernel.
-
-    diversity_tension : both S and I use w = α·φ·(1−φ)
-    avoidance         : S uses w = α·φ, I does not rewire (w_I = 0)
-    baseline          : both S and I use constant OMEGA_BASELINE
-    """
-    w_S = np.zeros((nmax + 1, nmax + 1))
-    w_I = np.zeros((nmax + 1, nmax + 1))
+def _build_switching_matrix(nmax, alpha, kernel):
+    """Return w_mat for the chosen kernel (symmetric: w_S = w_I)."""
+    w = np.zeros((nmax + 1, nmax + 1))
     for n in range(2, nmax + 1):
         if kernel == "baseline":
-            w_S[n, :n + 1] = OMEGA_BASELINE
-            w_I[n, :n + 1] = OMEGA_BASELINE
+            w[n, :n + 1] = OMEGA_BASELINE
         elif kernel == "diversity_tension":
             for i in range(n + 1):
-                val = w_diversity_tension(n, i, alpha)
-                w_S[n, i] = val
-                w_I[n, i] = val
-        elif kernel == "avoidance":
+                w[n, i] = w_diversity_tension(n, i, alpha)
+        elif kernel == "tension_shifted":
             for i in range(n + 1):
-                w_S[n, i] = w_avoidance(n, i, alpha)
-                # w_I stays 0
-    return w_S, w_I
+                w[n, i] = w_tension_shifted(n, i, alpha)
+    return w
 
 
 def _initialize(state_meta, I0):
@@ -150,7 +139,7 @@ def _infected_fraction(sm, gm):
     return float(np.sum((1.0 - sm) * gm))
 
 
-def _vector_field(v, _t, inf_mat, w_S_mat, w_I_mat, state_meta):
+def _vector_field(v, _t, inf_mat, w_mat, state_meta):
     mmax, nmax = state_meta[0], state_meta[1]
     m, gm = state_meta[2], state_meta[3]
     imat, nmat, pnmat = state_meta[5], state_meta[6], state_meta[7]
@@ -175,18 +164,9 @@ def _vector_field(v, _t, inf_mat, w_S_mat, w_I_mat, state_meta):
 
     I = _infected_fraction(sm, gm)
 
-    # S_w for infected switching pool (where do infected go when they rewire?)
-    denom_I = np.sum(nmat[2:, :] * w_I_mat[2:, :] * fni[2:, :] * pnmat[2:, :])
-    S_w_I = (
-        np.sum((nmat[2:, :] - imat[2:, :]) * w_I_mat[2:, :] * fni[2:, :] * pnmat[2:, :])
-        / denom_I
-        if denom_I > 1e-14 else 1.0 - I
-    )
-
-    # S_w for susceptible switching pool (where do susceptibles go when they rewire?)
-    denom_S = np.sum(nmat[2:, :] * w_S_mat[2:, :] * fni[2:, :] * pnmat[2:, :])
-    S_w_S = (
-        np.sum((nmat[2:, :] - imat[2:, :]) * w_S_mat[2:, :] * fni[2:, :] * pnmat[2:, :])
+    denom_S = np.sum(nmat[2:, :] * w_mat[2:, :] * fni[2:, :] * pnmat[2:, :])
+    S_w = (
+        np.sum((nmat[2:, :] - imat[2:, :]) * w_mat[2:, :] * fni[2:, :] * pnmat[2:, :])
         / denom_S
         if denom_S > 1e-14 else 1.0 - I
     )
@@ -195,17 +175,17 @@ def _vector_field(v, _t, inf_mat, w_S_mat, w_I_mat, state_meta):
 
     # i+1 → i: infected leaving via recovery or rewiring to susceptible-group
     fni_field[2:, :nmax] += (
-        imat[2:, 1:] * (MU + w_I_mat[2:, 1:] * S_w_I) * fni[2:, 1:]
+        imat[2:, 1:] * (MU + w_mat[2:, 1:] * S_w) * fni[2:, 1:]
     )
     # diagonal outflow
     fni_field[2:, :] += (
-        -imat[2:, :] * (MU + w_I_mat[2:, :] * S_w_I)
-        - (nmat[2:, :] - imat[2:, :]) * (inf_mat[2:, :] + rho + w_S_mat[2:, :] * (1.0 - S_w_S))
+        -imat[2:, :] * (MU + w_mat[2:, :] * S_w)
+        - (nmat[2:, :] - imat[2:, :]) * (inf_mat[2:, :] + rho + w_mat[2:, :] * (1.0 - S_w))
     ) * fni[2:, :]
     # i-1 → i: susceptible leaving via infection or rewiring to infected-group
     fni_field[2:, 1:nmax + 1] += (
         (nmat[2:, :nmax] - imat[2:, :nmax])
-        * (inf_mat[2:, :nmax] + rho + w_S_mat[2:, :nmax] * (1.0 - S_w_S))
+        * (inf_mat[2:, :nmax] + rho + w_mat[2:, :nmax] * (1.0 - S_w))
         * fni[2:, :nmax]
     )
 
@@ -217,12 +197,12 @@ def _integrate(lam, nu, alpha, state_meta, I0, kernel):
     gm = state_meta[3]
 
     inf_mat = _infection_matrix(lam, nu, nmax)
-    w_S_mat, w_I_mat = _build_switching_matrices(nmax, alpha, kernel)
+    w_mat   = _build_switching_matrix(nmax, alpha, kernel)
     sm, fni = _initialize(state_meta, I0)
     v0 = np.concatenate((sm, fni.reshape((nmax + 1) ** 2)))
 
     sol = solve_ivp(
-        lambda t, v: _vector_field(v, t, inf_mat, w_S_mat, w_I_mat, state_meta),
+        lambda t, v: _vector_field(v, t, inf_mat, w_mat, state_meta),
         t_span=(0.0, T_MAX),
         y0=v0,
         method="LSODA",
