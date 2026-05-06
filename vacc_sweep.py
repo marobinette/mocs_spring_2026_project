@@ -1,21 +1,23 @@
 #!/usr/bin/env python3
 """
-VACC parameter sweep — diversity-tension kernel or baseline.
+VACC parameter sweep — diversity-tension kernel, avoidance kernel, or baseline.
 
 Sweeps (lambda x nu) for a single alpha value, or runs a single baseline sweep
 with constant omega. Designed to be submitted as a SLURM array job.
 
-Kernel: w(n,i) = α·φ·(1−φ)  peaks at α/4 at φ=0.5 (flees mixed groups)
-
-Baseline: w(n,i) = OMEGA_BASELINE (constant)
+Kernels:
+  diversity_tension  w_S = w_I = α·φ·(1−φ)   both flee mixed groups (symmetric)
+  avoidance          w_S = α·φ, w_I = 0       susceptibles flee infected-heavy
+                                               groups; infected do not rewire
+Baseline: w_S = w_I = OMEGA_BASELINE (constant)
 
 Usage:
-    python vacc_sweep.py --task-index 0            # first alpha in ALPHA_VALUES
-    python vacc_sweep.py --task-index 11           # baseline (index == len(ALPHA_VALUES))
-    python vacc_sweep.py --alpha 3.0
-    python vacc_sweep.py --alpha-index 6           # index into ALPHA_VALUES
+    python vacc_sweep.py --task-index 0                                 # first alpha, default kernel
+    python vacc_sweep.py --task-index 11                                # baseline
+    python vacc_sweep.py --alpha 3.0 --kernel avoidance
+    python vacc_sweep.py --alpha-index 6 --kernel diversity_tension
     python vacc_sweep.py --baseline
-    python vacc_sweep.py --task-index 0 --network Synthetic_poisson_k5
+    python vacc_sweep.py --task-index 0 --network Synthetic_poisson_k5 --kernel avoidance
     python vacc_sweep.py --alpha 3.0 --workers 16
 """
 
@@ -48,7 +50,8 @@ T_MAX        = 1000.0
 DATA_PATH = "Data/group_statistics.txt"
 OUT_DIR   = "Files/vacc"
 
-ALPHA_VALUES = np.logspace(-1, 3, 11).tolist()
+ALPHA_VALUES   = np.logspace(-1, 3, 11).tolist()
+KERNEL_CHOICES = ["diversity_tension", "avoidance"]
 
 OMEGA_BASELINE = 5.0
 
@@ -85,11 +88,17 @@ def _get_state_meta(mmax, nmax, gm, pn):
 
 
 # ---------------------------------------------------------------------------
-# Kernel
+# Kernels
 # ---------------------------------------------------------------------------
 def w_diversity_tension(n, i, alpha):
     phi = i / n
     return alpha * phi * (1 - phi)
+
+
+def w_avoidance(n, i, alpha):
+    """Susceptible switching rate — linear in infected fraction."""
+    phi = i / n
+    return alpha * phi
 
 
 # ---------------------------------------------------------------------------
@@ -103,19 +112,29 @@ def _infection_matrix(lam, nu, nmax):
     return mat
 
 
-def _switching_matrix(nmax, alpha):
-    mat = np.zeros((nmax + 1, nmax + 1))
-    for n in range(2, nmax + 1):
-        for i in range(n + 1):
-            mat[n, i] = w_diversity_tension(n, i, alpha)
-    return mat
+def _build_switching_matrices(nmax, alpha, kernel):
+    """Return (w_S_mat, w_I_mat) for the chosen kernel.
 
-
-def _baseline_switching_matrix(nmax):
-    mat = np.zeros((nmax + 1, nmax + 1))
+    diversity_tension : both S and I use w = α·φ·(1−φ)
+    avoidance         : S uses w = α·φ, I does not rewire (w_I = 0)
+    baseline          : both S and I use constant OMEGA_BASELINE
+    """
+    w_S = np.zeros((nmax + 1, nmax + 1))
+    w_I = np.zeros((nmax + 1, nmax + 1))
     for n in range(2, nmax + 1):
-        mat[n, :n + 1] = OMEGA_BASELINE
-    return mat
+        if kernel == "baseline":
+            w_S[n, :n + 1] = OMEGA_BASELINE
+            w_I[n, :n + 1] = OMEGA_BASELINE
+        elif kernel == "diversity_tension":
+            for i in range(n + 1):
+                val = w_diversity_tension(n, i, alpha)
+                w_S[n, i] = val
+                w_I[n, i] = val
+        elif kernel == "avoidance":
+            for i in range(n + 1):
+                w_S[n, i] = w_avoidance(n, i, alpha)
+                # w_I stays 0
+    return w_S, w_I
 
 
 def _initialize(state_meta, I0):
@@ -131,7 +150,7 @@ def _infected_fraction(sm, gm):
     return float(np.sum((1.0 - sm) * gm))
 
 
-def _vector_field(v, _t, inf_mat, w_mat, state_meta, use_baseline=False):
+def _vector_field(v, _t, inf_mat, w_S_mat, w_I_mat, state_meta):
     mmax, nmax = state_meta[0], state_meta[1]
     m, gm = state_meta[2], state_meta[3]
     imat, nmat, pnmat = state_meta[5], state_meta[6], state_meta[7]
@@ -154,45 +173,56 @@ def _vector_field(v, _t, inf_mat, w_mat, state_meta, use_baseline=False):
     else:
         rho = r * np.sum(m * (m - 1) * sm * gm) / denom_rho
 
-    S_w_denom = np.sum(nmat[2:, :] * w_mat[2:, :] * fni[2:, :] * pnmat[2:, :])
-    if S_w_denom > 1e-14:
-        S_w = (
-            np.sum((nmat[2:, :] - imat[2:, :]) * w_mat[2:, :] * fni[2:, :] * pnmat[2:, :])
-            / S_w_denom
-        )
-    else:
-        I = _infected_fraction(sm, gm)
-        S_w = 1.0 - I
+    I = _infected_fraction(sm, gm)
+
+    # S_w for infected switching pool (where do infected go when they rewire?)
+    denom_I = np.sum(nmat[2:, :] * w_I_mat[2:, :] * fni[2:, :] * pnmat[2:, :])
+    S_w_I = (
+        np.sum((nmat[2:, :] - imat[2:, :]) * w_I_mat[2:, :] * fni[2:, :] * pnmat[2:, :])
+        / denom_I
+        if denom_I > 1e-14 else 1.0 - I
+    )
+
+    # S_w for susceptible switching pool (where do susceptibles go when they rewire?)
+    denom_S = np.sum(nmat[2:, :] * w_S_mat[2:, :] * fni[2:, :] * pnmat[2:, :])
+    S_w_S = (
+        np.sum((nmat[2:, :] - imat[2:, :]) * w_S_mat[2:, :] * fni[2:, :] * pnmat[2:, :])
+        / denom_S
+        if denom_S > 1e-14 else 1.0 - I
+    )
 
     sm_field = MU * (1.0 - sm) - sm * m * r
 
+    # i+1 → i: infected leaving via recovery or rewiring to susceptible-group
     fni_field[2:, :nmax] += (
-        imat[2:, 1:] * (MU + w_mat[2:, 1:] * S_w) * fni[2:, 1:]
+        imat[2:, 1:] * (MU + w_I_mat[2:, 1:] * S_w_I) * fni[2:, 1:]
     )
+    # diagonal outflow
     fni_field[2:, :] += (
-        -imat[2:, :] * (MU + w_mat[2:, :] * S_w)
-        - (nmat[2:, :] - imat[2:, :]) * (inf_mat[2:, :] + rho + w_mat[2:, :] * (1.0 - S_w))
+        -imat[2:, :] * (MU + w_I_mat[2:, :] * S_w_I)
+        - (nmat[2:, :] - imat[2:, :]) * (inf_mat[2:, :] + rho + w_S_mat[2:, :] * (1.0 - S_w_S))
     ) * fni[2:, :]
+    # i-1 → i: susceptible leaving via infection or rewiring to infected-group
     fni_field[2:, 1:nmax + 1] += (
         (nmat[2:, :nmax] - imat[2:, :nmax])
-        * (inf_mat[2:, :nmax] + rho + w_mat[2:, :nmax] * (1.0 - S_w))
+        * (inf_mat[2:, :nmax] + rho + w_S_mat[2:, :nmax] * (1.0 - S_w_S))
         * fni[2:, :nmax]
     )
 
     return np.concatenate((sm_field, fni_field.reshape((nmax + 1) ** 2)))
 
 
-def _integrate(lam, nu, alpha, state_meta, I0, use_baseline=False):
+def _integrate(lam, nu, alpha, state_meta, I0, kernel):
     mmax, nmax = state_meta[0], state_meta[1]
     gm = state_meta[3]
 
     inf_mat = _infection_matrix(lam, nu, nmax)
-    w_mat   = _baseline_switching_matrix(nmax) if use_baseline else _switching_matrix(nmax, alpha)
+    w_S_mat, w_I_mat = _build_switching_matrices(nmax, alpha, kernel)
     sm, fni = _initialize(state_meta, I0)
     v0 = np.concatenate((sm, fni.reshape((nmax + 1) ** 2)))
 
     sol = solve_ivp(
-        lambda t, v: _vector_field(v, t, inf_mat, w_mat, state_meta, use_baseline=use_baseline),
+        lambda t, v: _vector_field(v, t, inf_mat, w_S_mat, w_I_mat, state_meta),
         t_span=(0.0, T_MAX),
         y0=v0,
         method="LSODA",
@@ -206,12 +236,12 @@ def _integrate(lam, nu, alpha, state_meta, I0, use_baseline=False):
 # Parallel sweep — one worker per nu slice
 # ---------------------------------------------------------------------------
 def _sweep_nu_slice(args):
-    j, nu, alpha, state_meta, use_baseline = args
+    j, nu, alpha, state_meta, kernel = args
     I_low_row  = np.zeros(N_LAM)
     I_high_row = np.zeros(N_LAM)
     for i, lam in enumerate(LAM_GRID):
-        I_low_row[i]  = _integrate(lam, nu, alpha, state_meta, I0_LOW,  use_baseline=use_baseline)
-        I_high_row[i] = _integrate(lam, nu, alpha, state_meta, I0_HIGH, use_baseline=use_baseline)
+        I_low_row[i]  = _integrate(lam, nu, alpha, state_meta, I0_LOW,  kernel=kernel)
+        I_high_row[i] = _integrate(lam, nu, alpha, state_meta, I0_HIGH, kernel=kernel)
         print(
             f"  nu={nu:.2f} [{j+1}/{N_NU}]  lam={lam:.2e} [{i+1}/{N_LAM}]"
             f"  I*(low)={I_low_row[i]:.4f}  I*(high)={I_high_row[i]:.4f}",
@@ -220,7 +250,7 @@ def _sweep_nu_slice(args):
     return j, I_low_row, I_high_row
 
 
-def run_sweep(alpha, state_meta, n_workers, label, use_baseline=False):
+def run_sweep(alpha, state_meta, n_workers, label, kernel):
     print(f"\n{'='*60}")
     print(f"  {label}")
     print(f"  Grid: {N_LAM} lambda x {N_NU} nu")
@@ -228,7 +258,7 @@ def run_sweep(alpha, state_meta, n_workers, label, use_baseline=False):
     print(f"{'='*60}\n")
     t0 = time.time()
 
-    tasks = [(j, nu, alpha, state_meta, use_baseline) for j, nu in enumerate(NU_GRID)]
+    tasks = [(j, nu, alpha, state_meta, kernel) for j, nu in enumerate(NU_GRID)]
 
     I_low  = np.zeros((N_LAM, N_NU))
     I_high = np.zeros((N_LAM, N_NU))
@@ -253,11 +283,14 @@ def main():
                             help=f"SLURM array index: 0–{len(ALPHA_VALUES)-1} = kernel alpha, "
                                  f"{len(ALPHA_VALUES)} = baseline")
     mode_group.add_argument("--alpha", type=float,
-                            help="Diversity-tension amplitude α")
+                            help="Kernel amplitude α")
     mode_group.add_argument("--alpha-index", type=int,
                             help=f"Index into ALPHA_VALUES: {ALPHA_VALUES}")
     mode_group.add_argument("--baseline", action="store_true",
                             help=f"Run baseline sweep with constant ω={OMEGA_BASELINE}")
+    parser.add_argument("--kernel", type=str, default="diversity_tension",
+                        choices=KERNEL_CHOICES,
+                        help="Switching kernel for alpha runs (default: diversity_tension)")
     parser.add_argument("--workers", type=int, default=None,
                         help="Parallel workers (default: all available CPUs)")
     parser.add_argument("--network", type=str, default="Thiers13",
@@ -268,6 +301,7 @@ def main():
     os.makedirs(OUT_DIR, exist_ok=True)
 
     network   = args.network
+    kernel    = args.kernel
     n_workers = args.workers or cpu_count()
     date_str  = time.strftime('%Y-%m-%d')
 
@@ -275,10 +309,10 @@ def main():
 
     if args.task_index is not None:
         if args.task_index < len(ALPHA_VALUES):
-            args.alpha = ALPHA_VALUES[args.task_index]
+            args.alpha    = ALPHA_VALUES[args.task_index]
             args.baseline = False
         else:
-            args.alpha = None
+            args.alpha    = None
             args.baseline = True
 
     if args.baseline:
@@ -286,7 +320,7 @@ def main():
         I_low, I_high, delta = run_sweep(
             None, state_meta, n_workers,
             f"Baseline (ω={OMEGA_BASELINE})  network={network}",
-            use_baseline=True,
+            kernel="baseline",
         )
         np.savez_compressed(
             outfile,
@@ -299,10 +333,11 @@ def main():
         )
     else:
         alpha = args.alpha if args.alpha is not None else ALPHA_VALUES[args.alpha_index]
-        outfile = os.path.join(OUT_DIR, f"{date_str}_{network}_kernel_alpha_{alpha:g}.npz")
+        outfile = os.path.join(OUT_DIR, f"{date_str}_{network}_{kernel}_alpha_{alpha:g}.npz")
         I_low, I_high, delta = run_sweep(
             alpha, state_meta, n_workers,
-            f"Diversity-tension kernel  alpha={alpha}  network={network}",
+            f"{kernel} kernel  alpha={alpha}  network={network}",
+            kernel=kernel,
         )
         np.savez_compressed(
             outfile,
@@ -310,7 +345,7 @@ def main():
             I_low=I_low, I_high=I_high, delta=delta,
             alpha=alpha, mu=MU,
             I0_low=I0_LOW, I0_high=I0_HIGH,
-            kernel="diversity_tension",
+            kernel=kernel,
         )
 
     print(f"\nSaved → {outfile}")
