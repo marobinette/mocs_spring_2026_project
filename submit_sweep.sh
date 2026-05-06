@@ -1,72 +1,35 @@
 #!/bin/bash
-# SLURM submission script — diversity-tension kernel or baseline.
+# SLURM submission script — diversity-tension kernel + baseline, one array job.
 #
-# Submits a 13-task array job (one per alpha value) for the kernel sweep, or
-# a single job for the baseline (constant ω=5) sweep.
-# Results land in Files/vacc/
+# Submits a 12-task array job: tasks 0–10 run the kernel at each alpha value,
+# task 11 runs the baseline (constant ω=5).  Results land in Files/vacc/
 #
 # Usage:
-#   sbatch submit_sweep.sh                                  # kernel, Thiers13
-#   NETWORK=Synthetic_poisson_k5 sbatch submit_sweep.sh    # kernel, other network
-#   BASELINE=1 sbatch submit_sweep.sh                      # baseline, Thiers13
-#   BASELINE=1 NETWORK=Synthetic_poisson_k5 sbatch submit_sweep.sh
+#   sbatch submit_sweep.sh                                  # Thiers13
+#   NETWORK=Synthetic_poisson_k5 sbatch submit_sweep.sh    # other network
 
 NETWORK="${NETWORK:-Thiers13}"
-BASELINE="${BASELINE:-0}"
 
-if [ "$BASELINE" = "1" ]; then
+echo "Submitting combined sweep (11 alpha + baseline) for NETWORK=$NETWORK"
 
-echo "Submitting baseline sweep for NETWORK=$NETWORK"
-
-sbatch <<BASELINE_JOB
+sbatch <<EOF
 #!/bin/bash
-#SBATCH --job-name=baseline_${NETWORK}
+#SBATCH --job-name=sweep_${NETWORK}
+#SBATCH --array=0-11
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=16G
 #SBATCH --time=10:00:00
-#SBATCH --output=logs/baseline_${NETWORK}.out
-#SBATCH --error=logs/baseline_${NETWORK}.err
-
-mkdir -p logs Files/vacc
-
-echo "Baseline job starting on \$(hostname) at \$(date)"
-
-python vacc_sweep.py \\
-    --baseline \\
-    --network ${NETWORK} \\
-    --workers \$SLURM_CPUS_PER_TASK
-
-echo "Baseline job finished at \$(date)"
-BASELINE_JOB
-
-else
-
-echo "Submitting kernel sweep for NETWORK=$NETWORK"
-
-# ALPHA_VALUES = np.logspace(-1, 3, 13)
-# ~ [0.10, 0.22, 0.46, 1.0, 2.15, 4.64, 10.0, 21.5, 46.4, 100.0, 215.4, 464.2, 1000.0]
-#      0     1     2     3    4     5     6     7     8     9    10    11    12
-
-sbatch <<KERNEL_JOB
-#!/bin/bash
-#SBATCH --job-name=kernel_${NETWORK}
-#SBATCH --array=0-12
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=16G
-#SBATCH --time=10:00:00
-#SBATCH --output=logs/kernel_${NETWORK}_%a.out
-#SBATCH --error=logs/kernel_${NETWORK}_%a.err
+#SBATCH --output=logs/sweep_${NETWORK}_%a.out
+#SBATCH --error=logs/sweep_${NETWORK}_%a.err
 
 mkdir -p logs Files/vacc
 
 echo "Task \$SLURM_ARRAY_TASK_ID starting on \$(hostname) at \$(date)"
 
 python vacc_sweep.py \\
-    --alpha-index \$SLURM_ARRAY_TASK_ID \\
+    --task-index \$SLURM_ARRAY_TASK_ID \\
     --network ${NETWORK} \\
     --workers \$SLURM_CPUS_PER_TASK
 
 echo "Task \$SLURM_ARRAY_TASK_ID finished at \$(date)"
-KERNEL_JOB
-
-fi
+EOF

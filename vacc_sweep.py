@@ -3,19 +3,19 @@
 VACC parameter sweep — diversity-tension kernel or baseline.
 
 Sweeps (lambda x nu) for a single alpha value, or runs a single baseline sweep
-with constant omega. Designed to be submitted as a SLURM array job, one task
-per alpha value.
+with constant omega. Designed to be submitted as a SLURM array job.
 
 Kernel: w(n,i) = α·φ·(1−φ)  peaks at α/4 at φ=0.5 (flees mixed groups)
 
 Baseline: w(n,i) = OMEGA_BASELINE (constant)
 
 Usage:
+    python vacc_sweep.py --task-index 0            # first alpha in ALPHA_VALUES
+    python vacc_sweep.py --task-index 11           # baseline (index == len(ALPHA_VALUES))
     python vacc_sweep.py --alpha 3.0
     python vacc_sweep.py --alpha-index 6           # index into ALPHA_VALUES
     python vacc_sweep.py --baseline
-    python vacc_sweep.py --alpha 3.0 --network Synthetic_poisson_k5
-    python vacc_sweep.py --baseline --network Synthetic_poisson_k5
+    python vacc_sweep.py --task-index 0 --network Synthetic_poisson_k5
     python vacc_sweep.py --alpha 3.0 --workers 16
 """
 
@@ -48,7 +48,7 @@ T_MAX        = 1000.0
 DATA_PATH = "Data/group_statistics.txt"
 OUT_DIR   = "Files/vacc"
 
-ALPHA_VALUES = np.logspace(-1, 3, 13).tolist()
+ALPHA_VALUES = np.logspace(-1, 3, 11).tolist()
 
 OMEGA_BASELINE = 5.0
 
@@ -155,7 +155,7 @@ def _vector_field(v, _t, inf_mat, w_mat, state_meta, use_baseline=False):
         rho = r * np.sum(m * (m - 1) * sm * gm) / denom_rho
 
     S_w_denom = np.sum(nmat[2:, :] * w_mat[2:, :] * fni[2:, :] * pnmat[2:, :])
-    if S_w_denom > 1e-14 and not use_baseline:
+    if S_w_denom > 1e-14:
         S_w = (
             np.sum((nmat[2:, :] - imat[2:, :]) * w_mat[2:, :] * fni[2:, :] * pnmat[2:, :])
             / S_w_denom
@@ -249,6 +249,9 @@ def run_sweep(alpha, state_meta, n_workers, label, use_baseline=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     mode_group = parser.add_mutually_exclusive_group(required=True)
+    mode_group.add_argument("--task-index", type=int,
+                            help=f"SLURM array index: 0–{len(ALPHA_VALUES)-1} = kernel alpha, "
+                                 f"{len(ALPHA_VALUES)} = baseline")
     mode_group.add_argument("--alpha", type=float,
                             help="Diversity-tension amplitude α")
     mode_group.add_argument("--alpha-index", type=int,
@@ -269,6 +272,14 @@ def main():
     date_str  = time.strftime('%Y-%m-%d')
 
     gm, pn, mmax, nmax, state_meta = load_group_statistics(network)
+
+    if args.task_index is not None:
+        if args.task_index < len(ALPHA_VALUES):
+            args.alpha = ALPHA_VALUES[args.task_index]
+            args.baseline = False
+        else:
+            args.alpha = None
+            args.baseline = True
 
     if args.baseline:
         outfile = os.path.join(OUT_DIR, f"{date_str}_{network}_baseline.npz")
