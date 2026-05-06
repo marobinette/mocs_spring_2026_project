@@ -63,7 +63,7 @@ T_MAX        = 1000.0
 DATA_PATH = "Data/group_statistics.txt"
 OUT_DIR   = "Files/vacc"
 
-ALPHA_VALUES   = np.logspace(-1, 3, 11).tolist()
+ALPHA_VALUES   = np.logspace(-1, 2.5, 5).tolist()
 KERNEL_CHOICES = ["diversity_tension", "tension_shifted", "mixture"]
 
 OMEGA_BASELINE = 5.0

@@ -20,10 +20,10 @@ echo "Submitting sweep: kernel=${KERNEL}  network=${NETWORK}"
 sbatch <<EOF
 #!/bin/bash
 #SBATCH --job-name=${KERNEL}_${NETWORK}
-#SBATCH --array=0-11
+#SBATCH --array=0-5
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=16G
-#SBATCH --time=10:00:00
+#SBATCH --time=03:00:00
 #SBATCH --output=logs/${KERNEL}_${NETWORK}_%a.out
 #SBATCH --error=logs/${KERNEL}_${NETWORK}_%a.err
 
