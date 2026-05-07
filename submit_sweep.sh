@@ -8,9 +8,10 @@
 #   sbatch submit_sweep.sh
 #   NETWORK=Synthetic_poisson_k5 sbatch submit_sweep.sh
 #   KERNEL=tension_shifted sbatch submit_sweep.sh
-#   KERNEL=tension_shifted NETWORK=Synthetic_poisson_k2 sbatch submit_sweep.sh
+#   KERNEL=tension_shifted NETWORK=Synthetic_poisson_k3 sbatch submit_sweep.sh
 #   KERNEL=mixture NETWORK=Thiers13 sbatch submit_sweep.sh  
 #   choices=["Thiers13", "Synthetic_poisson_k5", "Synthetic_poisson_k3", "LyonSchool", "Synthetic_poisson_k2"],
+#   KERNEL_CHOICES = ["diversity_tension", "tension_shifted", "mixture"]  
 
 NETWORK="${NETWORK:-Thiers13}"
 KERNEL="${KERNEL:-diversity_tension}"   # diversity_tension | tension_shifted
